@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+
+# Entornos
+.env
+.env.*
+
+# Index y datos grandes
+data/raw/
+data/index/
+build/
+
+# React
+frontend/node_modules/
+frontend/build/
+
+# SO / editor
+.DS_Store
+.vscode/
