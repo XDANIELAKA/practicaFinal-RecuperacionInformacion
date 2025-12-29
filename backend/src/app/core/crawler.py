@@ -14,13 +14,58 @@ def crawl_page(url: str) -> str:
         }
         res = requests.get(url, headers=headers, timeout=5)
         res.raise_for_status()
-        soup = BeautifulSoup(res.text, "html.parser")
-        # Extraemos texto visible, puedes mejorar este limpiado:
-        texts = soup.get_text(separator="\n", strip=True)
-        return texts
+        return res.text  # guardamos HTML completo
+        
     except Exception as e:
         print(f"Crawl error en {url}:", e)
         return ""
+    
+def extract_metadata(html: str) -> dict:
+    """
+    Extrae título, h1 y meta-description de un HTML.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+
+    # --- Título ---
+    title = soup.title.string.strip() if soup.title and soup.title.string else ""
+
+    # --- H1 ---
+    h1_tag = soup.find("h1")
+    h1_text = h1_tag.get_text(strip=True) if h1_tag else ""
+
+    # --- Meta Description (múltiples variantes) ---
+    meta_desc = ""
+
+    # 1) meta name="description"
+    desc_tag = soup.find("meta", {"name": "description"})
+    if desc_tag and desc_tag.get("content"):
+        meta_desc = desc_tag["content"].strip()
+
+    # 2) Open Graph description
+    if not meta_desc:
+        og_tag = soup.find("meta", {"property": "og:description"})
+        if og_tag and og_tag.get("content"):
+            meta_desc = og_tag["content"].strip()
+
+    # 3) Twitter description
+    if not meta_desc:
+        twitter_tag = soup.find("meta", {"name": "twitter:description"})
+        if twitter_tag and twitter_tag.get("content"):
+            meta_desc = twitter_tag["content"].strip()
+
+    # 4) Fallback: primeros párrafos visibles
+    if not meta_desc:
+        p_tag = soup.find("p")
+        if p_tag:
+            # tomamos solo los primeros 150–200 caracteres
+            text = p_tag.get_text(strip=True)
+            meta_desc = text[:200] + ("…" if len(text) > 200 else "")
+
+    return {
+        "title": title,
+        "h1": h1_text,
+        "description": meta_desc
+    }
 
 def save_document(n: int, text: str, raw_dir: str) -> str:
     """
@@ -65,17 +110,27 @@ def simple_crawl(
 
         print(f"Crawling ({count+1}/{max_pages}): {url}")
 
-        text = crawl_page(url)
+        html_text = crawl_page(url)
 
-        print(f"[CRAWL] Terminó: {url}")
+        if html_text:
+            # Extraemos metadatos del HTML
+            metadata = extract_metadata(html_text)
 
-        if not text:
-            continue
+            # Nombre base del documento (000001, 000002, etc.)
+            filename = f"{count + 1:06d}"
 
-        # Guardamos el documento en raw_dir
-        path = save_document(count + 1, text, raw_dir)
-        saved_files.append(path)
-        count += 1
+            # Guardar metadatos en JSON
+            meta_path = os.path.join(raw_dir, f"{filename}.meta.json")
+            with open(meta_path, "w", encoding="utf-8") as mf:
+                import json
+                json.dump(metadata, mf, ensure_ascii=False, indent=2)
+
+            # Guardar el HTML completo
+            path = save_document(count + 1, html_text, raw_dir)
+            saved_files.append(path)
+
+            count += 1
+            print(f"[CRAWL] Terminó: {url}")
 
         # Aquí podrías extraer enlaces y añadirlos a la cola
         # en función de max_depth, etc.

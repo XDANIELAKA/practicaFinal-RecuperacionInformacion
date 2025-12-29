@@ -7,6 +7,7 @@ from app.core.crawler import simple_crawl
 
 # Importamos la función que nos da la ruta global de raw
 from app.core.paths import data_raw_dir
+
 router = APIRouter()
 
 class CrawlRequest(BaseModel):

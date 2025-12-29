@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
+
 from app.core.textproc import normalize_text, tokenize_text, remove_stopwords
 from app.index.bm25 import bm25_score
 from app.index.storage import get_connection
