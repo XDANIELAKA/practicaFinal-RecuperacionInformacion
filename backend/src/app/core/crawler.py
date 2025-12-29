@@ -1,21 +1,46 @@
 import os
+import time
 import requests
+import urllib.robotparser
+from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from typing import List
 
-def crawl_page(url: str) -> str:
+def crawl_page(url: str, user_agent: str = "PracticaRI-CrawlerBot/1.0 (+https://github.com/XDANIELAKA)") -> str:
     """
-    Hace una petición HTTP a la URL dada, devuelve el texto
-    extraído (limpio) del HTML o vacío en caso de error.
+    Hace una petición HTTP a la URL dada y devuelve
+    el HTML completo de la página si está permitido
+    por robots.txt o vacío en caso de error.
     """
+
     try:
-        headers = {
-            "User-Agent": "PracticaRI-CrawlerBot/1.0 (+https://github.com/XDANIELAKA)"
-        }
-        res = requests.get(url, headers=headers, timeout=5)
+        # --- Preparar el parser de robots.txt para ese dominio ---
+        parsed = urlparse(url)
+        domain = f"{parsed.scheme}://{parsed.netloc}"
+
+        rp = urllib.robotparser.RobotFileParser()
+        rp.set_url(f"{domain}/robots.txt")
+        rp.read()
+
+        # --- Comprobar si la URL está permitida por robots.txt ---
+        if not rp.can_fetch(user_agent, url):
+            print(f"[robots.txt] Acceso denegado para {url}")
+            return ""
+
+        # --- Respetar posible crawl-delay ---
+        delay = rp.crawl_delay(user_agent)
+        if delay:
+            print(f"[robots.txt] Crawl-delay de {delay} s para {domain}")
+            time.sleep(delay)
+
+        # --- Realizar la petición HTTP ---
+        headers = {"User-Agent": user_agent}
+        res = requests.get(url, headers=headers, timeout=10)
         res.raise_for_status()
-        return res.text  # guardamos HTML completo
-        
+
+        # --- Devolver el HTML completo ---
+        return res.text
+
     except Exception as e:
         print(f"Crawl error en {url}:", e)
         return ""
