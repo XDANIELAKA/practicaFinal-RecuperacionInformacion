@@ -5,10 +5,19 @@ import urllib.robotparser
 from urllib.parse import urlparse, urljoin, urlunparse, parse_qsl, urlencode
 from bs4 import BeautifulSoup
 from typing import List, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import deque
+import threading
+
 
 MAX_HTML_SIZE = 5 * 1024 * 1024  # 5 MB
 BUCKET_SIZE = 1000
 MAX_TOTAL_BYTES = 10 * 1024 * 1024 * 1024  # 10 GB
+robots_cache = {}
+MAX_WORKERS = 5
+visited_lock = threading.Lock()
+quota_lock = threading.Lock()
+
 
 def normalize_url(url: str) -> str:
     """
@@ -79,9 +88,13 @@ def crawl_page(
         parsed = urlparse(url)
         domain = f"{parsed.scheme}://{parsed.netloc}"
 
-        rp = urllib.robotparser.RobotFileParser()
-        rp.set_url(f"{domain}/robots.txt")
-        rp.read()
+        if domain not in robots_cache:
+            rp = urllib.robotparser.RobotFileParser()
+            rp.set_url(f"{domain}/robots.txt")
+            rp.read()
+            robots_cache[domain] = rp
+        else:
+            rp = robots_cache[domain]
 
         # --- Comprobar si la URL está permitida por robots.txt ---
         if not rp.can_fetch(user_agent, url):
@@ -219,9 +232,8 @@ def simple_crawl(
     y devuelve la lista de rutas de los archivos guardados.
     """
 
-    # 1) Calcular numeración continua según los .txt existentes
+    # --- 1) Calcular numeración continua según los .txt existentes ---
     existing_txts = []
-
     for root, _, files in os.walk(raw_dir):
         for f in files:
             if f.lower().endswith(".txt") and f.split(".")[0].isdigit():
@@ -237,9 +249,8 @@ def simple_crawl(
     else:
         start_index = 0
 
-    # Comprobar tamaño total actual en bytes
+    # --- Comprobar tamaño total actual en bytes ---
     current_total_bytes = 0
-
     for root, _, files in os.walk(raw_dir):
         for f in files:
             file_path = os.path.join(root, f)
@@ -248,76 +259,99 @@ def simple_crawl(
             except OSError:
                 pass
 
-    # 2) BFS con profundidad y robots.txt
+    # --- 2) BFS con concurrencia, profundidad y robots.txt ---
     visited = set()
-    queue: List[Tuple[str, int]] = [(url, 0) for url in seed_urls]
-    count = 0
+    queue = deque((normalize_url(url), 0) for url in seed_urls)
     saved_files: List[str] = []
 
-    while queue and count < max_pages:
-        url, depth = queue.pop(0)
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = {}
 
-        # Evitar URLs repetidas
-        if url in visited:
-            continue
-        visited.add(url)
+        while queue and len(saved_files) < max_pages:
 
-        # Mostrar progreso
-        print(f"Crawling ({count+1}/{max_pages}): {url}")
+            # --- Enviar nuevas tareas al executor ---
+            while queue and len(futures) < MAX_WORKERS and len(saved_files) + len(futures) < max_pages:
+                url, depth = queue.popleft()
 
-        # 3) Crawl de la página
-        html_text = crawl_page(url)
+                with visited_lock:
+                    if url in visited:
+                        continue
+                    visited.add(url)
 
-        if html_text:
-            # Evitar HTMLs excesivamente grandes
-            if len(html_text) > MAX_HTML_SIZE:
-                print(f"[SKIP] HTML demasiado grande ({len(html_text)} bytes): {url}")
-                continue
+                # Encolamos tarea sin imprimir todavía
+                future = executor.submit(crawl_page, url)
+                futures[future] = (url, depth)
 
-            # 4) Guardar HTML + metadatos
-            new_idx = start_index + count + 1
+            # --- Procesar tareas completadas ---
+            for future in as_completed(list(futures)):
+                url, depth = futures.pop(future)
 
-            doc_size = len(html_text.encode("utf-8"))
+                try:
+                    html_text = future.result()
+                except Exception as e:
+                    print(f"[ERROR] Descargando {url}: {e}")
+                    continue
 
-            if current_total_bytes + doc_size > MAX_TOTAL_BYTES:
-                print("[STOP] Cuota máxima de almacenamiento alcanzada")
-                return saved_files
+                # Si no hay HTML o está vacío → ignorar
+                if not html_text:
+                    continue
 
-            # Extraer y guardar metadatos en JSON
-            metadata = extract_metadata(html_text)
-            bucket_dir = get_bucket_dir(new_idx, raw_dir)
-            os.makedirs(bucket_dir, exist_ok=True)
+                # Si HTML demasiado grande → ignorar
+                if len(html_text) > MAX_HTML_SIZE:
+                    print(f"[SKIP] HTML demasiado grande: {url}")
+                    continue
 
-            meta_path = os.path.join(bucket_dir, f"{new_idx:06d}.meta.json")
-            with open(meta_path, "w", encoding="utf-8") as mf:
-                import json
-                json.dump(metadata, mf, ensure_ascii=False, indent=2)
+                # Tamaño en bytes del documento
+                doc_bytes = len(html_text.encode("utf-8"))
 
+                with quota_lock:
+                    if current_total_bytes + doc_bytes > MAX_TOTAL_BYTES:
+                        print("[STOP] Cuota máxima de 10GB alcanzada")
+                        return saved_files
 
-            # Guardar el HTML completo
-            path = save_document(new_idx, html_text, raw_dir)
-            saved_files.append(path)
+                # --- Guardar documento y metadatos ---
+                new_idx = start_index + len(saved_files) + 1
 
-            print(f"[CRAWL] Terminó: {url}")
+                # Guardar metadatos
+                metadata = extract_metadata(html_text)
+                bucket_dir = get_bucket_dir(new_idx, raw_dir)
+                os.makedirs(bucket_dir, exist_ok=True)
 
-            count += 1
-            current_total_bytes += doc_size
+                meta_path = os.path.join(bucket_dir, f"{new_idx:06d}.meta.json")
+                with open(meta_path, "w", encoding="utf-8") as mf:
+                    import json
+                    json.dump(metadata, mf, ensure_ascii=False, indent=2)
 
-            # 5) Si aún no excedimos la profundidad, extraer y encolar enlaces
-            if depth < max_depth:
-                links = extract_links(html_text, url)
+                # Guardar HTML
+                html_path = os.path.join(bucket_dir, f"{new_idx:06d}.txt")
+                with open(html_path, "w", encoding="utf-8", errors="ignore") as f:
+                    f.write(html_text)
 
-                # Considerar solo enlaces del mismo dominio actual
-                parsed = urlparse(url)
-                base_domain = f"{parsed.scheme}://{parsed.netloc}" # hace crawling por dominio exacto, no por subdominios
+                saved_files.append(html_path)
 
-                for link in links:
-                    normalized_link = normalize_url(link)
+                with quota_lock:
+                    current_total_bytes += doc_bytes
 
-                    if (normalized_link.startswith(base_domain)
-                        and normalized_link not in visited
-                        and normalized_link not in {u for u, _ in queue}
-                    ):
-                        queue.append((normalized_link, depth + 1))
+                # 🔹 Nuevo print con número real de guardado
+                doc_number = len(saved_files)
+                print(f"[CRAWL] Guardado ({doc_number}/{max_pages}): {url}")
+
+                # --- Extraer enlaces y encolar si hay profundidad ---
+                if depth < max_depth:
+                    links = extract_links(html_text, url)
+                    parsed = urlparse(url)
+                    base_domain = f"{parsed.scheme}://{parsed.netloc}"
+
+                    for link in links:
+                        normalized_link = normalize_url(link)
+                        if normalized_link.startswith(base_domain):
+                            with visited_lock:
+                                if normalized_link not in visited:
+                                    queue.append((normalized_link, depth + 1))
+
+            # Fin del for as_completed
+
+        # Fin del while queue
+
 
     return saved_files
