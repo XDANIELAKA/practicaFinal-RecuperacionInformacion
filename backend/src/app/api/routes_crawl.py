@@ -20,9 +20,9 @@ def crawl_endpoint(req: CrawlRequest):
     """
     Ejemplo de body:
     {
-        "seed_urls": ["https://es.wikipedia.org/wiki/Inteligencia_artificial"],
-        "max_pages": 50,
-        "max_depth": 1
+    "seed_urls": ["https://developer.mozilla.org/es/docs/Web/HTML"],
+    "max_pages": 20,
+    "max_depth": 2
     }
     """
     # Obtenemos la ruta global donde guardaremos los archivos

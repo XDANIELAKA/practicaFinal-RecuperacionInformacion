@@ -81,7 +81,13 @@ def search_endpoint(req: SearchRequest):
     results = []
     con = get_connection()
 
-    for doc_id, score in paged_ranked:
+    # Calcular el valor máximo de PageRank una sola vez (para normalizar)
+    max_pr_row = con.execute("SELECT MAX(rank) FROM pagerank").fetchone()
+    max_pr = max_pr_row[0] if max_pr_row and max_pr_row[0] not in (None, 0) else 1.0
+
+    # recorrer los documentos paginados
+    for doc_id, score_bm25 in paged_ranked:
+
         # obtener título y path del documento
         row = con.execute(
             "SELECT title, path FROM docs WHERE doc_id=?", (doc_id,)
@@ -89,26 +95,48 @@ def search_endpoint(req: SearchRequest):
         title = row[0] if row else ""
         path = row[1] if row else ""
 
-        # leer el texto completo del documento
+        # leer el texto completo del documento para snippet
         try:
             with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 raw_text = f.read()
         except Exception:
             raw_text = ""
 
-        # normalizar texto para snippet
+        # normalizar texto completo para buscar snippet
         normalized_doc_text = normalize_text(raw_text)
 
-        # extraer snippets relevantes para el documento
+        # extraer snippet alrededor de los términos de consulta
         snippet = extract_snippets_bm25(normalized_doc_text, filtered_query_terms)
 
+        # obtener PageRank si existe
+        pr_row = con.execute(
+            "SELECT rank FROM pagerank WHERE doc_id=?", (doc_id,)
+        ).fetchone()
+
+        # PageRank real sin normalizar
+        raw_pr = pr_row[0] if pr_row else 0.0
+
+        # Normalizar PageRank (0..1)
+        pagerank_norm = raw_pr / max_pr
+
+        # combinación lineal (ajusta alpha según necesidad)
+        alpha = 0.7
+        final_score = alpha * score_bm25 + (1 - alpha) * pagerank_norm
+
+        # añadir resultado a la lista con todos los campos
         results.append({
             "doc_id": doc_id,
             "title": title,
-            "score": score,
+            "score_bm25": score_bm25,
+            "pagerank_raw": raw_pr,
+            "pagerank_norm": pagerank_norm,
+            "score": final_score,
             "path": path,
             "snippet": snippet
         })
+
+    # opcional: ordenar por score (descendente)
+    results.sort(key=lambda r: r["score"], reverse=True)
 
     con.close()
 

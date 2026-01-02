@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+
 from app.api import routes_crawl
 from app.api import routes_preprocess
 from app.api import routes_index
@@ -7,11 +8,8 @@ from app.api import routes_search
 app = FastAPI(title="Practica Final RI")
 
 app.include_router(routes_crawl.router)
-
 app.include_router(routes_preprocess.router)
-
 app.include_router(routes_index.router)
-
 app.include_router(routes_search.router)
 
 @app.get("/")

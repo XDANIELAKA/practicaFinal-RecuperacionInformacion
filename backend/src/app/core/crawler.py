@@ -1,6 +1,7 @@
 import os
 import time
 import requests
+import json
 import urllib.robotparser
 from urllib.parse import urlparse, urljoin, urlunparse, parse_qsl, urlencode
 from bs4 import BeautifulSoup
@@ -314,12 +315,12 @@ def simple_crawl(
 
                 # Guardar metadatos
                 metadata = extract_metadata(html_text)
+                metadata["url"] = normalize_url(url)
                 bucket_dir = get_bucket_dir(new_idx, raw_dir)
                 os.makedirs(bucket_dir, exist_ok=True)
 
                 meta_path = os.path.join(bucket_dir, f"{new_idx:06d}.meta.json")
                 with open(meta_path, "w", encoding="utf-8") as mf:
-                    import json
                     json.dump(metadata, mf, ensure_ascii=False, indent=2)
 
                 # Guardar HTML
@@ -332,7 +333,7 @@ def simple_crawl(
                 with quota_lock:
                     current_total_bytes += doc_bytes
 
-                # 🔹 Nuevo print con número real de guardado
+                # Nuevo print con número real de guardado
                 doc_number = len(saved_files)
                 print(f"[CRAWL] Guardado ({doc_number}/{max_pages}): {url}")
 
