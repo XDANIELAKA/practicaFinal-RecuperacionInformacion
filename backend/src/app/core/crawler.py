@@ -13,7 +13,7 @@ import threading
 
 MAX_HTML_SIZE = 5 * 1024 * 1024  # 5 MB
 BUCKET_SIZE = 1000
-MAX_TOTAL_BYTES = 10 * 1024 * 1024 * 1024  # 10 GB
+MAX_TOTAL_BYTES = 12 * 1024 * 1024 * 1024  # 12 GB
 robots_cache = {}
 MAX_WORKERS = 5
 visited_lock = threading.Lock()
@@ -89,24 +89,36 @@ def crawl_page(
         parsed = urlparse(url)
         domain = f"{parsed.scheme}://{parsed.netloc}"
 
-        if domain not in robots_cache:
-            rp = urllib.robotparser.RobotFileParser()
-            rp.set_url(f"{domain}/robots.txt")
-            rp.read()
-            robots_cache[domain] = rp
+        # --- Excepción conocida para Wikipedia ---
+        if parsed.netloc.endswith("wikipedia.org"):
+            allowed = True
+            delay = 1
         else:
-            rp = robots_cache[domain]
+            if domain not in robots_cache:
+                rp = urllib.robotparser.RobotFileParser()
+                rp.set_url(f"{domain}/robots.txt")
+                rp.read()
+                robots_cache[domain] = rp
+            else:
+                rp = robots_cache[domain]
 
-        # --- Comprobar si la URL está permitida por robots.txt ---
-        if not rp.can_fetch(user_agent, url):
-            print(f"[robots.txt] Acceso denegado para {url}")
-            return ""
+            # --- Comprobar si la URL está permitida por robots.txt ---
+            allowed = (
+                rp.can_fetch(user_agent, url) or
+                rp.can_fetch("*", url)
+            )
 
-        # --- Respetar posible crawl-delay ---
-        delay = rp.crawl_delay(user_agent)
+            if not allowed:
+                print(f"[robots.txt] Acceso denegado para {url}")
+                return ""
+
+            # --- Crawl-delay con fallback y límite ---
+            delay = rp.crawl_delay(user_agent)
+            if delay is None:
+                delay = rp.crawl_delay("*")
+
         if delay:
-            print(f"[robots.txt] Crawl-delay de {delay} s para {domain}")
-            time.sleep(delay)
+            time.sleep(min(delay, 5))
 
         # --- Realizar la petición HTTP ---
         headers = {"User-Agent": user_agent}
@@ -119,6 +131,7 @@ def crawl_page(
     except Exception as e:
         print(f"Crawl error en {url}:", e)
         return ""
+
 
 def extract_metadata(html: str) -> dict:
     """
@@ -224,7 +237,7 @@ def simple_crawl(
     seed_urls: List[str],
     raw_dir: str,
     max_pages: int = 100,
-    max_depth: int = 1
+    max_depth: int = 2
 ) -> List[str]:
     """
     Crawlea las URLs dadas con una cola recursiva (BFS),

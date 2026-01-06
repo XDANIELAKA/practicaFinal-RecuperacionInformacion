@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from fastapi import HTTPException
 from pydantic import BaseModel
 
+from app.index.storage import init_db
 from app.index.indexer import index_documents
 from app.core.paths import get_project_root
 
@@ -23,8 +24,7 @@ def index_endpoint(req: IndexRequest):
     }
 
     Esta función:
-    - Combina la ruta relativa con la raíz real del proyecto,
-      independientemente de dónde se arranque el servidor.
+    - Combina la ruta relativa con la raíz real del proyecto
     - Llama al indexador
     - Ejecuta PageRank después de indexar
     """
@@ -37,6 +37,9 @@ def index_endpoint(req: IndexRequest):
     # Verificar que existe la carpeta raw
     if not os.path.isdir(abs_raw_dir):
         raise HTTPException(status_code=400, detail=f"Directorio raw no existe: {abs_raw_dir}")
+    
+    # Inicializar la BD antes de indexar
+    init_db()
 
     # Llamada al indexador con la ruta absoluta
     stats = index_documents(abs_raw_dir)
