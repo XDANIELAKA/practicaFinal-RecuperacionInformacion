@@ -75,7 +75,7 @@ def compute_pagerank(graph, damping=0.85, max_iter=100, tol=1.0e-6):
         pr = new_pr
         # si la diferencia total < tol → convergencia
         if diff < tol:
-            # Opcional: print(f"[PageRank] Convergencia tras {iteration+1} iteraciones")
+            # print(f"[PageRank] Convergencia tras {iteration+1} iteraciones")
             break
 
     return pr

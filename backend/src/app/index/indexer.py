@@ -238,6 +238,16 @@ def index_documents(raw_dir: str):
             print(f"[index_documents] Sin tokens útiles en: {filename}")
             continue
 
+        # --- Evitar indexar dos veces la misma URL ---
+        cursor.execute(
+            "SELECT doc_id FROM docs WHERE url = ?",
+            (normalized_doc_url,)
+        )
+        row = cursor.fetchone()
+        if row is not None:
+            print(f"[SKIP] URL ya indexada: {normalized_doc_url}")
+            continue
+
         # --- Asignar doc_id ---
         doc_id = N + 1
         url_to_docid[normalized_doc_url] = doc_id

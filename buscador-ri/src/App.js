@@ -1,3 +1,4 @@
+// src/App.js
 import { useState } from "react";
 import "./App.css";
 
@@ -11,26 +12,24 @@ function App() {
     try {
       const response = await fetch("http://localhost:8000/search", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           query: query,
-          topk: 20,
+          topk: 50,
           page: 1,
-          page_size: 10,
+          page_size: 50,
         }),
       });
 
       if (!response.ok) {
-        throw new Error("Response HTTP not OK");
+        throw new Error("Error en la búsqueda");
       }
 
       const data = await response.json();
-      setResults(data.results ?? []);
-    } catch (error) {
-      console.error("Error al hacer search:", error);
-      setError("Error al buscar — revisa la consola.");
+      setResults(data.results || []);
+    } catch (e) {
+      console.error("Error al hacer search:", e);
+      setError("Error al obtener resultados del servidor");
       setResults([]);
     }
   };
@@ -39,59 +38,81 @@ function App() {
     <div className="app-container">
       <h1>Buscador de Recuperación de Información</h1>
 
-      <div className="search-bar">
+      <div className="search-box">
         <input
           type="text"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
           placeholder="Escribe tu consulta..."
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              handleSearch();
-            }
-          }}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleSearch()}
         />
         <button onClick={handleSearch}>Buscar</button>
       </div>
 
       {error && <p className="error">{error}</p>}
 
-      <div className="results-container">
-        {results.map((result) => (
-          <div key={result.doc_id} className="result-item">
-            {/* Título que actúa como enlace */}
+      <div className="results-list">
+        {results.map((item) => (
+          <div key={item.doc_id} className="result-card">
+
+            {/* Título (enlace al path) */}
             <a
-              href={result.path}
+              href={item.path}
               target="_blank"
               rel="noopener noreferrer"
               className="result-title"
             >
-              <h3>{result.title || result.path}</h3>
+              <h3>{item.title || item.path}</h3>
             </a>
 
-            {/* Snippet con HTML (resaltado) */}
+            {/* URL/ruta interna */}
+            <p><strong>Ruta Interna:</strong> {item.path}</p>
+
+            {/* Snippet */}
             <p
-              className="result-snippet"
-              dangerouslySetInnerHTML={{ __html: result.snippet }}
+              className="snippet"
+              dangerouslySetInnerHTML={{ __html: item.snippet }}
             ></p>
 
-            {/* Metadatos adicionales */}
-            <div className="result-meta">
-              <span className="score">
-                Score: {(result.score ?? 0).toFixed(4)}
-              </span>
-              <span className="path">Path: {result.path}</span>
-            </div>
+            {/* Scores */}
+            <p><strong>Score BM25:</strong> {item.score_bm25?.toFixed(4)}</p>
+            <p><strong>Score Final:</strong> {item.score?.toFixed(4)}</p>
+
+            {/* PageRank */}
+            <p><strong>PageRank (crudo):</strong> {item.pagerank_raw?.toFixed(6)}</p>
+            <p><strong>PageRank (normalizado):</strong> {item.pagerank_norm?.toFixed(6)}</p>
+
+            {/* Conteo de palabras y tokens */}
+            <p><strong>Words Count:</strong> {item.word_count}</p>
+            <p><strong>Total Tokens:</strong> {item.total_tokens}</p>
+
+            {/* Tokens → lista */}
+            {item.tokens && item.tokens.length > 0 && (
+              <p><strong>Tokens (primeros):</strong> {item.tokens.join(", ")}</p>
+            )}
+
+            {/* TF-IDF (top términos si existen) */}
+            {item.tfidf && Object.keys(item.tfidf).length > 0 && (
+              <div>
+                <strong>TF-IDF (términos):</strong>
+                <ul className="tfidf-list">
+                  {Object.entries(item.tfidf).map(([term, val]) => (
+                    <li key={term}>
+                      {term}: {val.toFixed(6)}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <hr />
           </div>
         ))}
-
-        {/* Si no hay resultados después de buscar */}
-        {results.length === 0 && query && (
-          <p>No se obtuvieron resultados para esta consulta.</p>
-        )}
       </div>
+
+      {results.length === 0 && query && (
+        <p>No se encontraron resultados para: "{query}"</p>
+      )}
     </div>
   );
 }
