@@ -132,12 +132,14 @@ def reset_db():
     cur = con.cursor()
 
     cur.executescript("""
-    DROP TABLE IF EXISTS pagerank;
-    DROP TABLE IF EXISTS links;
-    DROP TABLE IF EXISTS postings;
-    DROP TABLE IF EXISTS df;
-    DROP TABLE IF EXISTS meta;
-    DROP TABLE IF EXISTS docs;
+    -- Primero las tablas dependientes
+    DELETE FROM postings;
+    DELETE FROM links;
+
+    -- Luego las tablas independientes
+    DELETE FROM docs;
+    DELETE FROM df;
+    DELETE FROM meta;
     """)
 
     con.commit()

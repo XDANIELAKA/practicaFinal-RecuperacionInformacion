@@ -1,3 +1,4 @@
+import html
 from typing import Dict, List
 from bs4 import BeautifulSoup
 import os
@@ -18,7 +19,11 @@ def extract_visible_text(html: str) -> str:
     - Filtra duplicados y ruido.
     """
 
-    soup = BeautifulSoup(html, "html.parser")
+    # Detectar si parece XML
+    if html.lstrip().startswith("<?xml"):
+        soup = BeautifulSoup(html, "lxml-xml")
+    else:
+        soup = BeautifulSoup(html, "lxml")
 
     # --- Eliminar etiquetas que no aportan texto semántico ---
     for tag in soup(["script", "style", "noscript", "header", "footer", "nav", "aside", "form"]):
@@ -130,10 +135,10 @@ def index_documents(raw_dir: str):
 
     # --- borrar índice viejo (solo datos), pero no estructura de tablas ---
     cursor.executescript("""
-        DELETE FROM docs;
         DELETE FROM postings;
-        DELETE FROM df;
         DELETE FROM links;
+        DELETE FROM docs;
+        DELETE FROM df;
         DELETE FROM meta;
     """)
     con.commit()
