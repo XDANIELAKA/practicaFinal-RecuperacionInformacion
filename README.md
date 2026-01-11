@@ -1,6 +1,6 @@
 # Sistema de Recuperación de Información sobre Wikipedia
 
-**Trabajo Fin de Grado – Ingeniería Informática**  
+**Trabajo Final – P4**  
 Autor: Daniel Martínez Infantes  
 Curso: 2025–2026  
 Universidad: Universidad de Granada (Ceuta)
